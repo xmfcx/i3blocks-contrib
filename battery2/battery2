@@ -1,38 +1,73 @@
 #!/usr/bin/env python3
 #
+# Modified for APC UPS integration using NUT (`upsc`).
+#
 # Copyright (C) 2016 James Murphy
 # Licensed under the GPL version 2 only
 #
 # A battery indicator blocklet script for i3blocks
 
-from subprocess import check_output
+from subprocess import check_output, CalledProcessError
 import os
 import re
 
 config = dict(os.environ)
-status = check_output(['acpi'], universal_newlines=True)
 
-if not status:
-    # stands for no battery found
-    color = config.get("color_10", "red")
-    fulltext = "<span color='{}'><span font='FontAwesome'>\uf00d \uf240</span></span>".format(color)
-    percentleft = 100
+# Function to fetch battery info from ACPI
+def get_acpi_status():
+    try:
+        status = check_output(['acpi'], universal_newlines=True)
+        return status.strip() if status else None
+    except FileNotFoundError:
+        return None
+    except CalledProcessError:
+        return None
+
+# Function to fetch battery info from NUT (upsc)
+def get_ups_status():
+    try:
+        status = check_output(['upsc', 'apcups@localhost'], universal_newlines=True)
+        return status.strip().split("\n") if status else None
+    except FileNotFoundError:
+        return None
+    except CalledProcessError:
+        return None
+
+# Try ACPI first
+status = get_acpi_status()
+
+if True:
+    # Fall back to UPS if ACPI is unavailable
+    ups_status = get_ups_status()
+    if ups_status:
+        # Parse UPS status
+        ups_info = {line.split(": ")[0]: line.split(": ")[1] for line in ups_status if ": " in line}
+        state = ups_info.get("ups.status", "Unknown")
+        percentleft = int(ups_info.get("battery.charge", 0))
+        timeleft = ups_info.get("battery.runtime", None)
+        if timeleft:
+            timeleft = int(timeleft)
+            timeleft = " ({:.0f}:{:02.0f})".format(timeleft // 60, timeleft % 60)
+        else:
+            timeleft = ""
+    else:
+        # No battery found
+        color = config.get("color_10", "red")
+        fulltext = "<span color='{}'><span font='FontAwesome'>\uf00d \uf240</span></span>".format(color)
+        percentleft = 0
 else:
-    # if there is more than one battery in one laptop, the percentage left is
-    # available for each battery separately, although state and remaining
-    # time for overall block is shown in the status of the first battery
+    # Process ACPI status
     batteries = status.split("\n")
-    state_batteries=[]
-    commasplitstatus_batteries=[]
-    percentleft_batteries=[]
+    state_batteries = []
+    commasplitstatus_batteries = []
+    percentleft_batteries = []
     time = ""
     for battery in batteries:
-        if battery!='':
+        if battery != '':
             state_batteries.append(battery.split(": ")[1].split(", ")[0])
             commasplitstatus = battery.split(", ")
             if not time:
                 time = commasplitstatus[-1].strip()
-                # check if it matches a time
                 time = re.match(r"(\d+):(\d+)", time)
                 if time:
                     time = ":".join(time.groups())
@@ -41,64 +76,50 @@ else:
                     timeleft = ""
 
             p = int(commasplitstatus[1].rstrip("%\n"))
-            if p>0:
+            if p > 0:
                 percentleft_batteries.append(p)
             commasplitstatus_batteries.append(commasplitstatus)
     state = state_batteries[0]
     commasplitstatus = commasplitstatus_batteries[0]
     if percentleft_batteries:
-        percentleft = int(sum(percentleft_batteries)/len(percentleft_batteries))
+        percentleft = int(sum(percentleft_batteries) / len(percentleft_batteries))
     else:
         percentleft = 0
 
-    # stands for charging
-    color = config.get("color_charging", "yellow")
-    FA_LIGHTNING = "<span color='{}'><span font='FontAwesome'>\uf0e7</span></span>".format(color)
+# Determine icons and colors based on state
+if state == "Discharging":
+    fulltext = "<span font='FontAwesome'>\uf240</span> "
+elif state == "Full":
+    fulltext = "<span font='FontAwesome'>\uf1e6</span> "
+    timeleft = ""
+elif state == "Unknown":
+    fulltext = "<span font='FontAwesome'>\uf128</span> <span font='FontAwesome'>\uf240</span> "
+    timeleft = ""
+else:
+    fulltext = "<span font='FontAwesome'>\uf0e7</span> <span font='FontAwesome'>\uf1e6</span> "
 
-    # stands for plugged in
-    FA_PLUG = "<span font='FontAwesome'>\uf1e6</span>"
+def color(percent):
+    if percent < 10:
+        return config.get("color_10", "#FFFFFF")
+    if percent < 20:
+        return config.get("color_20", "#FF3300")
+    if percent < 30:
+        return config.get("color_30", "#FF6600")
+    if percent < 40:
+        return config.get("color_40", "#FF9900")
+    if percent < 50:
+        return config.get("color_50", "#FFCC00")
+    if percent < 60:
+        return config.get("color_60", "#FFFF00")
+    if percent < 70:
+        return config.get("color_70", "#FFFF33")
+    if percent < 80:
+        return config.get("color_80", "#FFFF66")
+    return config.get("color_full", "#FFFFFF")
 
-    # stands for using battery
-    FA_BATTERY = "<span font='FontAwesome'>\uf240</span>"
-
-    # stands for unknown status of battery
-    FA_QUESTION = "<span font='FontAwesome'>\uf128</span>"
-
-
-    if state == "Discharging":
-        fulltext = FA_BATTERY + " "
-    elif state == "Full":
-        fulltext = FA_PLUG + " "
-        timeleft = ""
-    elif state == "Unknown":
-        fulltext = FA_QUESTION + " " + FA_BATTERY + " "
-        timeleft = ""
-    else:
-        fulltext = FA_LIGHTNING + " " + FA_PLUG + " "
-
-    def color(percent):
-        if percent < 10:
-            # exit code 33 will turn background red
-            return config.get("color_10", "#FFFFFF")
-        if percent < 20:
-            return config.get("color_20", "#FF3300")
-        if percent < 30:
-            return config.get("color_30", "#FF6600")
-        if percent < 40:
-            return config.get("color_40", "#FF9900")
-        if percent < 50:
-            return config.get("color_50", "#FFCC00")
-        if percent < 60:
-            return config.get("color_60", "#FFFF00")
-        if percent < 70:
-            return config.get("color_70", "#FFFF33")
-        if percent < 80:
-            return config.get("color_80", "#FFFF66")
-        return config.get("color_full", "#FFFFFF")
-
-    form =  '<span color="{}">{}%</span>'
-    fulltext += form.format(color(percentleft), percentleft)
-    fulltext += timeleft
+form = '<span color="{}">{}%</span>'
+fulltext += form.format(color(percentleft), percentleft)
+fulltext += timeleft
 
 print(fulltext)
 print(fulltext)
