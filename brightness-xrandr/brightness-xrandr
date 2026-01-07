@@ -1,63 +1,52 @@
 #!/usr/bin/env bash
-#
-# brightness-xrandr — Multi-monitor Float-Clamp brightness control for i3blocks
-# Scroll = step adjust, left-click = max, right-click = min (safe)
-#
-# Safe range: xrandr 0.1–1.0 mapped from 0–100.
 
-STEP_SIZE="${STEP_SIZE:-10}"
+# --- CONFIGURATION ---
+STEP_SIZE=10
+STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/gammastep-brightness"
+# Ensure this path matches where you saved the config you showed me earlier
+CONFIG_FILE="$HOME/.config/gammastep/config.ini"
 
-STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/brightness-xrandr-level"
-
-# Detect connected displays
-get_displays() {
-    xrandr --query | awk '/ connected/ {print $1}'
-}
-
-# Convert 0–100 -> 0.0–1.0 with minimum clamp of 0.1
-to_xrandr_value() {
-    local val="$1"
-    local b=$(echo "$val / 100" | bc -l)
-    awk -v b="$b" 'BEGIN { if (b < 0.1) b = 0.1; printf("%.2f", b); }'
-}
-
-# Initialize state file if missing
-if [ ! -f "$STATE_FILE" ]; then
-    echo 100 > "$STATE_FILE"
-fi
-
+# --- 1. CALCULATE BRIGHTNESS ---
+if [ ! -f "$STATE_FILE" ]; then echo 100 > "$STATE_FILE"; fi
 BRIGHT=$(cat "$STATE_FILE")
 
 case "$BLOCK_BUTTON" in
-    1)  # left click -> set to full brightness
-        BRIGHT=100
-        ;;
-    3)  # right click -> set to minimum safe brightness
-        BRIGHT=10
-        ;;
-    4)  # scroll up -> increase
-        BRIGHT=$((BRIGHT + STEP_SIZE))
-        ;;
-    5)  # scroll down -> decrease
-        BRIGHT=$((BRIGHT - STEP_SIZE))
-        ;;
+    1) BRIGHT=100 ;;         # Left Click: Max
+    3) BRIGHT=10 ;;          # Right Click: Min Safe
+    4) BRIGHT=$((BRIGHT + STEP_SIZE)) ;; # Scroll Up
+    5) BRIGHT=$((BRIGHT - STEP_SIZE)) ;; # Scroll Down
 esac
 
-# Clamp between 0–100
-[ "$BRIGHT" -gt 100 ] && BRIGHT=100
-[ "$BRIGHT" -lt 0 ] && BRIGHT=0
+# Clamp values (10-100)
+if [ "$BRIGHT" -gt 100 ]; then BRIGHT=100; fi
+if [ "$BRIGHT" -lt 10 ]; then BRIGHT=10; fi
 
 echo "$BRIGHT" > "$STATE_FILE"
 
-# Convert to xrandr brightness float
-XRANDR_VALUE=$(to_xrandr_value "$BRIGHT")
-
-# Apply to all connected monitors
-for d in $(get_displays); do
-    xrandr --output "$d" --brightness "$XRANDR_VALUE"
-done
-
-/home/mfc/.screenlayout/default.sh
-
-# Output for i3blocks
+# --- 2. UPDATE BAR TEXT (Instant) ---
 echo " $BRIGHT%"
+
+# --- 3. APPLY SETTINGS (Debounced Background Job) ---
+(
+    # Wait 0.3s to see if you scroll again
+    sleep 0.3
+
+    # Check if this instance is still the latest one
+    CURRENT_TARGET=$(cat "$STATE_FILE")
+
+    if [ "$BRIGHT" -eq "$CURRENT_TARGET" ]; then
+        
+        # Calculate float value (e.g., 0.8)
+        VAL=$(awk -v b="$BRIGHT" 'BEGIN { printf "%.1f", b/100 }')
+
+        # Kill any running instance (Force kill to prevent lag)
+        killall -q gammastep
+
+        # RESTART with your CONFIG file (-c) and BRIGHTNESS (-b)
+        # We redirect output to /dev/null to prevent i3blocks crashes
+        nohup gammastep -c "$CONFIG_FILE" -b "$VAL:$VAL" >/dev/null 2>&1 &
+    fi
+
+) >/dev/null 2>&1 &
+
+exit 0
