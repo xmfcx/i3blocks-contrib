@@ -3,50 +3,40 @@
 # --- CONFIGURATION ---
 STEP_SIZE=10
 STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/gammastep-brightness"
-
 CONFIG_FILE="$HOME/.config/gammastep/config.ini"
 
-# --- 1. CALCULATE BRIGHTNESS ---
-if [ ! -f "$STATE_FILE" ]; then echo 100 > "$STATE_FILE"; fi
+# --- INIT STATE ---
+[ -f "$STATE_FILE" ] || echo 100 > "$STATE_FILE"
 BRIGHT=$(cat "$STATE_FILE")
 
+# --- HANDLE INPUT ---
 case "$BLOCK_BUTTON" in
-    1) BRIGHT=100 ;;         # Left Click: Max
-    3) BRIGHT=10 ;;          # Right Click: Min Safe
-    4) BRIGHT=$((BRIGHT + STEP_SIZE)) ;; # Scroll Up
-    5) BRIGHT=$((BRIGHT - STEP_SIZE)) ;; # Scroll Down
+    1) BRIGHT=100 ;;                  # Left click → max
+    3) BRIGHT=10 ;;                   # Right click → safe min
+    4) BRIGHT=$((BRIGHT + STEP_SIZE)) ;; # Scroll up
+    5) BRIGHT=$((BRIGHT - STEP_SIZE)) ;; # Scroll down
 esac
 
-# Clamp values (10-100)
-if [ "$BRIGHT" -gt 100 ]; then BRIGHT=100; fi
-if [ "$BRIGHT" -lt 10 ]; then BRIGHT=10; fi
+# Clamp 10–100
+(( BRIGHT > 100 )) && BRIGHT=100
+(( BRIGHT < 10  )) && BRIGHT=10
 
+# Persist desired state
 echo "$BRIGHT" > "$STATE_FILE"
 
-# --- 2. UPDATE BAR TEXT (Instant) ---
+# --- OUTPUT (always) ---
 echo " $BRIGHT%"
 
-# --- 3. APPLY SETTINGS (Debounced Background Job) ---
-(
-    # Wait 0.3s to see if you scroll again
-    sleep 0.3
+# --- APPLY ONLY ON USER ACTION ---
+[ -z "$BLOCK_BUTTON" ] && exit 0
 
-    # Check if this instance is still the latest one
-    CURRENT_TARGET=$(cat "$STATE_FILE")
+# Convert to float
+VAL=$(awk -v b="$BRIGHT" 'BEGIN { printf "%.1f", b/100 }')
 
-    if [ "$BRIGHT" -eq "$CURRENT_TARGET" ]; then
-        
-        # Calculate float value (e.g., 0.8)
-        VAL=$(awk -v b="$BRIGHT" 'BEGIN { printf "%.1f", b/100 }')
-
-        # Kill any running instance (Force kill to prevent lag)
-        killall -q gammastep
-
-        # RESTART with your CONFIG file (-c) and BRIGHTNESS (-b)
-        # We redirect output to /dev/null to prevent i3blocks crashes
-        nohup gammastep -c "$CONFIG_FILE" -b "$VAL:$VAL" >/dev/null 2>&1 &
-    fi
-
-) >/dev/null 2>&1 &
+# Restart gammastep cleanly
+killall -q gammastep
+nohup gammastep -x >/dev/null 2>&1 &
+killall -q gammastep
+nohup gammastep -c "$CONFIG_FILE" -b "$VAL:$VAL" >/dev/null 2>&1 &
 
 exit 0
