@@ -3,7 +3,7 @@
 # --- CONFIGURATION ---
 STEP_SIZE=10
 STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/gammastep-brightness"
-# Ensure this path matches where you saved the config you showed me earlier
+
 CONFIG_FILE="$HOME/.config/gammastep/config.ini"
 
 # --- 1. CALCULATE BRIGHTNESS ---

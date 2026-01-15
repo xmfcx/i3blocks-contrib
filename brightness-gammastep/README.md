@@ -1,9 +1,9 @@
-# brightness-xrandr
+# brightness-gammastep
 
-A lightweight multi-monitor brightness controller for **i3blocks** using `xrandr`.
+A lightweight multi-monitor brightness controller for **i3blocks** using `gammastep`.
 
 * Adjusts brightness for **all connected displays**
-* Works with any monitor supported by `xrandr`
+* Works with any monitor supported by `gammastep`
 * Uses a safe clamped range (0.1–1.0)
 * Persistent brightness level stored in `~/.cache`
 * Smooth scroll-based increments
@@ -23,7 +23,7 @@ A lightweight multi-monitor brightness controller for **i3blocks** using `xrandr
 Make it executable:
 
 ```
-chmod +x i3blocks-contrib/brightness-xrandr/brightness-xrandr
+chmod +x i3blocks-contrib/brightness-gammastep/brightness-gammastep
 ```
 
 ## Usage (i3blocks configuration)
@@ -31,7 +31,7 @@ chmod +x i3blocks-contrib/brightness-xrandr/brightness-xrandr
 Example block:
 
 ```
-[brightness-xrandr]
+[brightness-gammastep]
 label=☀
 command=$SCRIPT_DIR/$BLOCK_NAME/$BLOCK_NAME
 interval=1
