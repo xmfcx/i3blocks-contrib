@@ -11,8 +11,8 @@ BRIGHT=$(cat "$STATE_FILE")
 
 # --- HANDLE INPUT ---
 case "$BLOCK_BUTTON" in
-    1) BRIGHT=100 ;;                  # Left click → max
-    3) BRIGHT=10 ;;                   # Right click → safe min
+    1) BRIGHT=100 ;;                     # Left click → max
+    3) BRIGHT=10 ;;                      # Right click → safe min
     4) BRIGHT=$((BRIGHT + STEP_SIZE)) ;; # Scroll up
     5) BRIGHT=$((BRIGHT - STEP_SIZE)) ;; # Scroll down
 esac
@@ -27,16 +27,28 @@ echo "$BRIGHT" > "$STATE_FILE"
 # --- OUTPUT (always) ---
 echo " $BRIGHT%"
 
-# --- APPLY ONLY ON USER ACTION ---
-[ -z "$BLOCK_BUTTON" ] && exit 0
+# --- APPLY LOGIC ---
+# Apply if:
+# 1. User interacted (BLOCK_BUTTON is not empty)
+# 2. OR gammastep is NOT running (e.g., on restart)
 
+IS_RUNNING=$(pgrep -x "gammastep")
+
+if [ -z "$BLOCK_BUTTON" ] && [ -n "$IS_RUNNING" ]; then
+    exit 0
+fi
+
+# --- EXECUTE GAMMASTEP ---
 # Convert to float
 VAL=$(awk -v b="$BRIGHT" 'BEGIN { printf "%.1f", b/100 }')
 
-# Restart gammastep cleanly
+# Kill existing instance cleanly
 killall -q gammastep
-nohup gammastep -x >/dev/null 2>&1 &
-killall -q gammastep
+
+# Wait briefly to ensure the process has released resources (prevents binding errors)
+while pgrep -x "gammastep" >/dev/null; do sleep 0.1; done
+
+# Start new instance
 nohup gammastep -c "$CONFIG_FILE" -b "$VAL:$VAL" >/dev/null 2>&1 &
 
 exit 0
