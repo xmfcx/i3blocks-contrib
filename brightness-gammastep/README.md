@@ -8,15 +8,24 @@ A lightweight multi-monitor brightness controller for **i3blocks** using `gammas
 * Persistent brightness level stored in `~/.cache`
 * Smooth scroll-based increments
 
+## Ranges
+
+| Value | Software (`gammastep -b`) | Hardware (`ddc-bright`) |
+| --------- | ------------------------- | ----------------------- |
+| 10 to 100 | 0.10 to 1.00              | 0                       |
+| 100 to 200 | 1.00                     | 0 to 100                |
+
+`ddc-bright` maps the hardware level per monitor. It runs in the background, one call at a time. A burst of scroll events collapses into the last value.
+
 ## Controls
 
-| Action      | Result                             |
-| ----------- | ---------------------------------- |
-| Left click  | Set brightness to **100%**         |
-| Right click | Set brightness to **10%**          |
-| Scroll up   | Increase brightness by `STEP_SIZE` |
-| Scroll down | Decrease brightness by `STEP_SIZE` |
-
+| Action       | Result                                   |
+| ------------ | ---------------------------------------- |
+| Left click   | **100**: software max, hardware 0        |
+| Middle click | **200**: everything max                  |
+| Right click  | **10**: software min                     |
+| Scroll up    | Increase by `STEP_SIZE`                  |
+| Scroll down  | Decrease by `STEP_SIZE`                  |
 
 ## Setup / Installation
 

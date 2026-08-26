@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 
+# Brightness block with two ranges:
+#   10..100  software brightness through `gammastep -b`, DDC level 0
+#   100..200 gammastep at 1.0, hardware level 0..100 through `ddc-bright`
+
 # --- CONFIGURATION ---
-STEP_SIZE=10
-STATE_FILE="${XDG_CACHE_HOME:-$HOME/.cache}/gammastep-brightness"
+STEP_SIZE=${STEP_SIZE:-10}
+MIN=10
+MAX=200
+CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}"
+STATE_FILE="$CACHE_DIR/gammastep-brightness"
+SOFT_APPLIED_FILE="$CACHE_DIR/gammastep-brightness-soft-applied"
+DDC_APPLIED_FILE="$CACHE_DIR/gammastep-brightness-ddc-applied"
+DDC_LOCK="$CACHE_DIR/gammastep-brightness-ddc.lock"
 CONFIG_FILE="$HOME/.config/gammastep/config.ini"
+DDC_BRIGHT=$(command -v ddc-bright || echo "$HOME/.local/bin/ddc-bright")
 
 # --- INIT STATE ---
 [ -f "$STATE_FILE" ] || echo 100 > "$STATE_FILE"
@@ -11,44 +22,64 @@ BRIGHT=$(cat "$STATE_FILE")
 
 # --- HANDLE INPUT ---
 case "$BLOCK_BUTTON" in
-    1) BRIGHT=100 ;;                     # Left click → max
-    3) BRIGHT=10 ;;                      # Right click → safe min
+    1) BRIGHT=100 ;;                     # Left click → software max, hardware 0
+    2) BRIGHT=$MAX ;;                    # Middle click → everything max
+    3) BRIGHT=$MIN ;;                    # Right click → safe min
     4) BRIGHT=$((BRIGHT + STEP_SIZE)) ;; # Scroll up
     5) BRIGHT=$((BRIGHT - STEP_SIZE)) ;; # Scroll down
 esac
 
-# Clamp 10–100
-(( BRIGHT > 100 )) && BRIGHT=100
-(( BRIGHT < 10  )) && BRIGHT=10
+(( BRIGHT > MAX )) && BRIGHT=$MAX
+(( BRIGHT < MIN )) && BRIGHT=$MIN
 
-# Persist desired state
 echo "$BRIGHT" > "$STATE_FILE"
+
+SOFT=$(( BRIGHT > 100 ? 100 : BRIGHT ))
 
 # --- OUTPUT (always) ---
 echo " $BRIGHT%"
 
-# --- APPLY LOGIC ---
-# Apply if:
-# 1. User interacted (BLOCK_BUTTON is not empty)
-# 2. OR gammastep is NOT running (e.g., on restart)
+# --- HARDWARE (ddc-bright, only after a click or scroll) ---
+apply_ddc_async() {
+    # One applier at a time. After each apply it re-reads the state, so a burst
+    # of scroll events collapses into the latest value.
+    (
+        exec 9>"$DDC_LOCK"
+        flock -w 15 9 || exit 0
+        while :; do
+            sleep 0.3
+            b=$(cat "$STATE_FILE")
+            target=$(( b > 100 ? b - 100 : 0 ))
+            [ "$target" = "$(cat "$DDC_APPLIED_FILE" 2>/dev/null)" ] && break
+            "$DDC_BRIGHT" "$target"
+            echo "$target" > "$DDC_APPLIED_FILE"
+        done
+    ) </dev/null >/dev/null 2>&1 &
+    disown
+}
 
-IS_RUNNING=$(pgrep -x "gammastep")
+[ -n "$BLOCK_BUTTON" ] && apply_ddc_async
 
-if [ -z "$BLOCK_BUTTON" ] && [ -n "$IS_RUNNING" ]; then
+# --- SOFTWARE (gammastep) ---
+# Restart gammastep only when:
+# 1. it is not running (for example after login), or
+# 2. the user interacted and the software part changed.
+IS_RUNNING=$(pgrep -x gammastep)
+
+if [ -n "$IS_RUNNING" ] && [ -z "$BLOCK_BUTTON" ]; then
+    exit 0
+fi
+if [ -n "$IS_RUNNING" ] && [ "$SOFT" = "$(cat "$SOFT_APPLIED_FILE" 2>/dev/null)" ]; then
     exit 0
 fi
 
-# --- EXECUTE GAMMASTEP ---
-# Convert to float
-VAL=$(awk -v b="$BRIGHT" 'BEGIN { printf "%.1f", b/100 }')
+VAL=$(awk -v b="$SOFT" 'BEGIN { printf "%.2f", b/100 }')
 
-# Kill existing instance cleanly
+# Kill the existing instance cleanly, then wait for it to release the display
 killall -q gammastep
+while pgrep -x gammastep >/dev/null; do sleep 0.1; done
 
-# Wait briefly to ensure the process has released resources (prevents binding errors)
-while pgrep -x "gammastep" >/dev/null; do sleep 0.1; done
-
-# Start new instance
 nohup gammastep -c "$CONFIG_FILE" -b "$VAL:$VAL" >/dev/null 2>&1 &
+echo "$SOFT" > "$SOFT_APPLIED_FILE"
 
 exit 0
